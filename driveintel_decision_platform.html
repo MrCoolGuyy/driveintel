@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveIntel - The Automotive Decision Platform</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        :root { --brand-primary: #1e3a8a; --brand-accent: #dc2626; }
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background-color: #f8fafc; color: #0f172a; }
+        .spec-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-bottom: 1.5rem; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-radius: 0.5rem; overflow: hidden; }
+        .spec-table th { background-color: #f1f5f9; color: #334155; text-align: left; padding: 0.75rem 1rem; width: 35%; font-weight: 600; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; vertical-align: top; }
+        .spec-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #e2e8f0; color: #1e293b; }
+        .spec-table tr:last-child th, .spec-table tr:last-child td { border-bottom: none; }
+        .section-header { font-size: 1.25rem; font-weight: 700; color: var(--brand-primary); margin-bottom: 1rem; border-bottom: 2px solid var(--brand-accent); padding-bottom: 0.25rem; display: inline-block; }
+        #app { min-height: 100vh; display: flex; flex-direction: column; }
+        main { flex-grow: 1; }
+    </style>
+</head>
+<body>
+
+    <div id="app"></div>
+
+    <script type="module">
+        import { DIRECTORY_MAP } from './src/database/constants.js';
+        import { ENGINES } from './src/database/engines.js';
+        import { PRODUCTS } from './src/database/products.js';
+        import { VEHICLES } from './src/database/vehicles.js';
+
+        // ==========================
+        // database/constants.js
+        // ==========================
+        const DatabaseConstants = (() => ({ DIRECTORY_MAP }))();
+
+        // ==========================
+        // database/engines.js
+        // ==========================
+        const DatabaseEngines = (() => ({ ENGINES }))();
+
+        // ==========================
+        // database/products.js
+        // ==========================
+        const DatabaseProducts = (() => ({ PRODUCTS }))();
+
+        // ==========================
+        // database/vehicles.js
+        // ==========================
+        const DatabaseVehicles = (() => ({ VEHICLES }))();
+
+        // ==========================
+        // database/resolver.js
+        // ==========================
+        const DatabaseResolver = ((Vehicles, Engines, Products, Constants) => {
+            return {
+                getAllVehicles: () => Vehicles,
+                getEngineDetails: (code) => Engines[code] || null,
+                getProductDetails: (id) => Products[id] || null,
+                getVehicleBySlug: (slug) => {
+                    const v = Vehicles.find(v => v.slug === slug);
+                    if (!v) return null;
+                    return {
+                        ...v,
+                        engine: Engines[v.engineCode] || {},
+                        mappedProducts: v.products.map(pId => Products[pId]).filter(Boolean)
+                    };
+                },
+                getDirectoryMap: () => Constants.DIRECTORY_MAP,
+                getUniqueValues: (field) => [...new Set(Vehicles.map(v => v[field]).filter(Boolean))].sort(),
+                getVehiclesByField: (field, value) => {
+                    const normalized = decodeURIComponent(value).toLowerCase();
+                    return Vehicles.filter(v => v[field] && v[field].toString().toLowerCase() === normalized);
+                },
+                getRelatedVehicles: (type, excludeSlug) => Vehicles.filter(v => v.bodyType === type && v.slug !== excludeSlug).slice(0, 4)
+            };
+        })(DatabaseVehicles.VEHICLES, DatabaseEngines.ENGINES, DatabaseProducts.PRODUCTS, DatabaseConstants);
+
+        // ==========================
+        // engines/search.engine.js
+        // ==========================
+        const SearchEngine = (() => {
+            return {
+                evaluateSearchScore: (query, target) => {
+                    const q = query.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const t = target.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (t.includes(q)) return 100; 
+                    let qIdx = 0, tIdx = 0;
+                    while (qIdx < q.length && tIdx < t.length) { if (q[qIdx] === t[tIdx]) qIdx++; tIdx++; }
+                    if (qIdx === q.length) return 50; 
+                    return 0; 
+                }
+            };
+        })();
+
+        // ==========================
+        // engines/recommendation.engine.js
+        // ==========================
+        const RecommendationEngine = (() => {
+            return {
+                categorizeDecisions: (mappedProducts, vehicleBrand) => {
+                    let decisions = { bestOem: null, bestPremium: null, bestBudget: null, bestPerformance: null };
+                    let pool = [...mappedProducts];
+                    
+                    decisions.bestOem = pool.find(p => p.brand.toLowerCase() === vehicleBrand.toLowerCase() || p.productName.includes("Genuine") || p.productName.includes("E-Pro")) || pool[0];
+                    decisions.bestPremium = pool.slice().sort((a,b) => b.performanceScore - a.performanceScore).find(p => p !== decisions.bestOem && p.price >= 600000);
+                    decisions.bestBudget = pool.slice().sort((a,b) => b.valueScore - a.valueScore).find(p => p !== decisions.bestOem && p !== decisions.bestPremium && p.price <= 450000);
+                    decisions.bestPerformance = pool.slice().sort((a,b) => b.performanceScore - a.performanceScore).find(p => p !== decisions.bestOem && p !== decisions.bestPremium && p !== decisions.bestBudget);
+
+                    if(!decisions.bestPremium) decisions.bestPremium = pool[1] || pool[0];
+                    if(!decisions.bestBudget) decisions.bestBudget = pool[0];
+                    if(!decisions.bestPerformance) decisions.bestPerformance = decisions.bestPremium;
+
+                    return decisions;
+                },
+                estimateMaintenanceCost: (oilCapacity, bestBudgetPrice, bestPremiumPrice) => {
+                    const minCost = bestBudgetPrice + 75000 + 50000;
+                    const maxCost = bestPremiumPrice + 120000 + 100000;
+                    return `Rp ${(minCost/1000).toFixed(0)}.000 - Rp ${(maxCost/1000).toFixed(0)}.000`;
+                }
+            };
+        })();
+
+        // ==========================
+        // engines/seo.engine.js
+        // ==========================
+        const SEOEngine = (() => {
+            return {
+                generateReasoning: (category, product, vehicle) => {
+                    if(!product) return "";
+                    const turboStr = vehicle.aspiration === "Turbo" ? "menahan temperatur tinggi dari komponen turbin" : "menjaga efisiensi termal pembakaran";
+                    switch(category) {
+                        case 'OEM': return `Pelumas standar resmi pabrikan. Diformulasikan secara spesifik oleh engineer ${vehicle.brand} untuk menjaga garansi mesin ${vehicle.engineCode} tetap berlaku.`;
+                        case 'Premium': return `Menggunakan Base Oil ${product.group} (${product.baseOil}). Struktur molekul sintetik murninya sangat resisten terhadap penguapan dan sempurna untuk ${turboStr}.`;
+                        case 'Budget': return `Skor Value-for-Money tertinggi (${product.valueScore}/100). Memenuhi standar ${product.api} dengan harga ekonomis, ideal untuk penggunaan harian stop-and-go.`;
+                        case 'Performance': return `Viskositas ${product.viscosity} menjaga kestabilan film oli di putaran RPM ekstrem. Resiko pemalsuan ${product.counterfeitRisk}, pastikan beli di toko resmi.`;
+                        default: return "";
+                    }
+                },
+                generateExecutiveSummary: (v) => {
+                    const engineInfo = v.engine && v.engine.engineName ? v.engine.engineName : v.engineCode;
+                    return `<strong>${v.brand} ${v.model} ${v.variant}</strong> generasi ${v.generation} yang dipasarkan di Indonesia antara tahun ${v.yearStart} hingga ${v.yearEnd} adalah ${v.segment} yang mengandalkan mesin <strong>${v.fuel} ${v.aspiration}</strong> berkode <strong>${engineInfo}</strong>. Untuk menjaga performa dan durabilitas, kendaraan ini membutuhkan penggantian oli sebanyak <strong>${v.oilCapacity} Liter</strong> (tergantung ukuran filter) secara rutin setiap <strong>${v.serviceInterval}</strong>. Pabrikan sangat merekomendasikan penggunaan pelumas dengan viskositas <strong>${v.oilGrade}</strong> yang memenuhi sertifikasi minimal <strong>${v.apiSpec}</strong>.`;
+                },
+                generateFAQ: (v) => {
+                    let faqs = [];
+                    faqs.push({ q: `Berapa kapasitas oli mesin ${v.brand} ${v.model} ${v.engineCode}?`, a: `Kapasitas oli mesin standar untuk ${v.brand} ${v.model} ${v.variant} (${v.yearStart}-${v.yearEnd}) adalah ${v.oilCapacity} Liter. Angka ini adalah estimasi penggantian total termasuk pergantian filter oli.` });
+                    faqs.push({ q: `Kapan waktu yang tepat mengganti oli ${v.model}?`, a: `Berdasarkan panduan resmi pabrik, oli mesin dan filter wajib diganti setiap ${v.serviceInterval}. Namun, jika Anda sering berkendara di kemacetan ekstrem (Severe Condition), disarankan mengganti oli 20-30% lebih cepat.` });
+                    if (v.engine && v.engine.knownIssues && v.engine.knownIssues.length > 0) {
+                        faqs.push({ q: `Apa masalah umum pada mesin ${v.engineCode} ini?`, a: `Beberapa hal yang perlu diwaspadai dari mesin ${v.engineCode} ini adalah: ${v.engine.knownIssues.join(', ')}. Penggunaan oli premium dapat meminimalisir penumpukan residu penyebab masalah tersebut.` });
+                    }
+                    return faqs;
+                }
+            };
+        })();
+
+        // ==========================
+        // services/search.service.js
+        // ==========================
+        const SearchService = ((Resolver, SearchEngine) => {
+            return {
+                searchVehicles: (query) => {
+                    if (!query || query.trim().length < 2) return [];
+                    const vehicles = Resolver.getAllVehicles();
+                    const results = vehicles.map(v => {
+                        const targetStr = `${v.brand} ${v.model} ${v.variant} ${v.engineCode}`;
+                        const score = SearchEngine.evaluateSearchScore(query, targetStr);
+                        return { ...v, score };
+                    });
+                    return results.filter(v => v.score > 0).sort((a, b) => b.score - a.score).slice(0, 8); 
+                }
+            };
+        })(DatabaseResolver, SearchEngine);
+
+        // ==========================
+        // services/homepage.service.js
+        // ==========================
+        const HomepageService = ((Resolver) => {
+            return {
+                getHomepageData: () => {
+                    const allVehicles = Resolver.getAllVehicles();
+                    const popularSlugs = ["toyota-innova-reborn-diesel", "mitsubishi-xpander", "honda-hrv-15-2015", "toyota-avanza-15-2015", "honda-brio-12", "toyota-fortuner-vrz-24"];
+                    const popularVehicles = popularSlugs.map(slug => allVehicles.find(v => v.slug === slug)).filter(Boolean);
+                    
+                    const dirMap = Resolver.getDirectoryMap();
+                    const directories = {};
+                    Object.keys(dirMap).forEach(key => {
+                        directories[key] = { meta: dirMap[key], items: Resolver.getUniqueValues(dirMap[key].field) };
+                    });
+
+                    return {
+                        hero: { title: "Automotive Decision Engine", subtitle: "Temukan produk perawatan terbaik dan komparasi objektif untuk kendaraan Anda.", searchPlaceholder: "Cari merek mobil, model, atau kode mesin (cth: Innova, 2GD-FTV)..." },
+                        popularVehicles: popularVehicles,
+                        directories: directories
+                    };
+                }
+            };
+        })(DatabaseResolver);
+
+        // ==========================
+        // services/vehicle.service.js
+        // ==========================
+        const VehicleService = ((Resolver, RecommendationEngine, SEOEngine) => {
+            return {
+                getVehicleData: (slug) => {
+                    const rawVehicle = Resolver.getVehicleBySlug(slug);
+                    if (!rawVehicle) return null;
+
+                    const decisions = RecommendationEngine.categorizeDecisions(rawVehicle.mappedProducts, rawVehicle.brand);
+                    const summary = SEOEngine.generateExecutiveSummary(rawVehicle);
+                    const costEst = RecommendationEngine.estimateMaintenanceCost(rawVehicle.oilCapacity, decisions.bestBudget.price, decisions.bestPremium.price);
+                    const faqs = SEOEngine.generateFAQ(rawVehicle);
+                    const related = Resolver.getRelatedVehicles(rawVehicle.bodyType, rawVehicle.slug);
+
+                    return {
+                        core: rawVehicle,
+                        decisionEngine: {
+                            summary: summary,
+                            bestOem: { product: decisions.bestOem, reason: SEOEngine.generateReasoning('OEM', decisions.bestOem, rawVehicle) },
+                            bestPremium: { product: decisions.bestPremium, reason: SEOEngine.generateReasoning('Premium', decisions.bestPremium, rawVehicle) },
+                            bestBudget: { product: decisions.bestBudget, reason: SEOEngine.generateReasoning('Budget', decisions.bestBudget, rawVehicle) },
+                            costEstimate: costEst,
+                            faqs: faqs
+                        },
+                        relatedVehicles: related
+                    };
+                }
+            };
+        })(DatabaseResolver, RecommendationEngine, SEOEngine);
+
+        // ==========================
+        // services/directory.service.js
+        // ==========================
+        const DirectoryService = ((Resolver) => {
+            return {
+                getDirectoryData: (routePrefix, paramValue) => {
+                    const dirMap = Resolver.getDirectoryMap();
+                    const dirConfig = dirMap[routePrefix];
+                    if (!dirConfig) return null;
+
+                    const vehicles = Resolver.getVehiclesByField(dirConfig.field, paramValue);
+                    if (!vehicles || vehicles.length === 0) return null;
+                    
+                    const sortedVehicles = vehicles.sort((a, b) => a.model.localeCompare(b.model));
+                    const decodedValue = decodeURIComponent(paramValue);
+                    const displayValue = decodedValue.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+                    return { directoryTitle: dirConfig.title, categoryValue: displayValue, count: sortedVehicles.length, vehicles: sortedVehicles };
+                }
+            };
+        })(DatabaseResolver);
+
+        // ==========================
+        // components/navbar.js
+        // ==========================
+        const NavbarComponent = (() => {
+            return {
+                render: () => `
+                    <nav class="bg-blue-900 text-white shadow-md sticky top-0 z-50">
+                        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between h-16">
+                            <a href="#home" class="flex items-center gap-2 text-xl font-bold tracking-tight"><i data-lucide="shield-check" class="w-6 h-6 text-red-500"></i> DriveIntel</a>
+                            <div class="hidden md:flex items-center space-x-6 text-sm font-medium">
+                                <a href="#home" class="hover:text-red-400 transition-colors">Decision Portal</a>
+                            </div>
+                        </div>
+                    </nav>
+                `
+            };
+        })();
+
+        // ==========================
+        // components/footer.js
+        // ==========================
+        const FooterComponent = (() => {
+            return {
+                render: () => `
+                    <footer class="bg-slate-900 text-slate-400 py-8 mt-12 border-t border-slate-800">
+                        <div class="max-w-7xl mx-auto px-4 text-center text-sm flex flex-col items-center gap-3">
+                            <p>&copy; 2026 DriveIntel Network. Smart Automotive Decisions.</p>
+                            <p class="text-xs text-slate-500 max-w-2xl mt-2">Sebagian tautan di situs ini adalah tautan afiliasi. Kami berupaya memberikan komparasi 100% objektif berbasis spesifikasi teknis.</p>
+                        </div>
+                    </footer>
+                `
+            };
+        })();
+
+        // ==========================
+        // components/card.js
+        // ==========================
+        const CardComponent = (() => {
+            const formatRupiah = (num) => "Rp " + num.toLocaleString('id-ID');
+            return {
+                renderDecision: (decisionObj, badgeTitle, badgeIcon, badgeBg, highlightColor) => {
+                    const p = decisionObj.product;
+                    if(!p) return '';
+                    return `
+                        <div class="bg-white rounded-xl border-2 border-slate-100 hover:border-${highlightColor}-400 overflow-hidden shadow-sm hover:shadow-lg transition-all relative flex flex-col h-full">
+                            <div class="absolute top-0 right-0 ${badgeBg} text-white text-xs font-bold px-3 py-1.5 rounded-bl-lg shadow-sm flex items-center gap-1.5">
+                                <i data-lucide="${badgeIcon}" class="w-3.5 h-3.5"></i> ${badgeTitle}
+                            </div>
+                            <div class="p-5 pt-8 flex-grow">
+                                <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">${p.brand} | ${p.baseOil}</div>
+                                <h4 class="font-bold text-slate-800 text-lg mb-2 leading-tight">${p.productName}</h4>
+                                <p class="text-sm text-slate-600 mb-4 leading-relaxed">${decisionObj.reason}</p>
+                                <div class="flex flex-wrap gap-2 mb-4">
+                                    <span class="inline-block bg-slate-100 text-slate-600 text-xs px-2 py-1 rounded font-semibold border border-slate-200">API ${p.api}</span>
+                                    <span class="inline-block bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded font-semibold border border-blue-200">${p.viscosity}</span>
+                                </div>
+                            </div>
+                            <div class="bg-slate-50 p-4 border-t border-slate-100 mt-auto">
+                                <div class="flex justify-between items-center mb-3">
+                                    <span class="text-xs font-bold text-slate-500 uppercase">Estimasi Harga</span>
+                                    <span class="text-lg font-extrabold text-${highlightColor}-700">${formatRupiah(p.price)}</span>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <a href="${p.tokopedia}" target="_blank" class="text-center py-2.5 rounded-lg text-green-800 bg-green-100 hover:bg-green-200 font-bold text-sm transition-colors flex items-center justify-center gap-1.5"><i data-lucide="shopping-bag" class="w-4 h-4"></i> Tokopedia</a>
+                                    <a href="${p.shopee}" target="_blank" class="text-center py-2.5 rounded-lg text-orange-800 bg-orange-100 hover:bg-orange-200 font-bold text-sm transition-colors flex items-center justify-center gap-1.5"><i data-lucide="shopping-cart" class="w-4 h-4"></i> Shopee</a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            };
+        })();
+
+        // ==========================
+        // renderers/home.view.js
+        // ==========================
+        const HomeView = ((HomepageService, SearchService, NavbarComponent, FooterComponent) => {
+            return {
+                render: () => {
+                    const data = HomepageService.getHomepageData();
+
+                    const vehiclesHTML = data.popularVehicles.map(v => `
+                        <a href="#vehicles/${v.slug}" class="group block bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md hover:border-blue-400 transition-all">
+                            <div class="p-5">
+                                <span class="text-xs font-bold text-blue-600 uppercase tracking-wider">${v.brand}</span>
+                                <h3 class="font-bold text-slate-800 mt-1 mb-2 text-lg">${v.model} <span class="text-sm font-normal text-slate-500">${v.variant}</span></h3>
+                                <div class="text-sm text-slate-600 flex flex-col gap-1.5 mt-3 pt-3 border-t border-slate-100">
+                                    <span class="flex items-center gap-2"><i data-lucide="cpu" class="w-4 h-4 text-slate-400"></i> ${v.engineCode} (${v.fuel})</span>
+                                    <span class="flex items-center gap-2"><i data-lucide="award" class="w-4 h-4 text-slate-400"></i> Best Oil: ${v.oilGrade}</span>
+                                </div>
+                            </div>
+                        </a>
+                    `).join('');
+
+                    const directoriesHTML = Object.keys(data.directories).map(key => {
+                        const dir = data.directories[key];
+                        if (dir.items.length === 0) return '';
+                        
+                        let contentHTML = `<div class="flex flex-wrap gap-2 md:gap-3">` + 
+                            dir.items.map(item => `<a href="#${key}/${encodeURIComponent(item.toLowerCase())}" class="inline-flex items-center bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200 font-semibold text-sm text-slate-700 hover:border-blue-500 hover:text-blue-700 transition-colors">${item}</a>`).join('') + 
+                            `</div>`;
+                        
+                        return `
+                            <section class="mb-10">
+                                <h2 class="text-sm font-extrabold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2"><i data-lucide="${dir.meta.icon}" class="w-4 h-4"></i> Pilih Berdasarkan ${dir.meta.title}</h2>
+                                ${contentHTML}
+                            </section>
+                        `;
+                    }).join('');
+
+                    return `
+                        ${NavbarComponent.render()}
+                        <main>
+                            <div class="bg-gradient-to-b from-blue-900 to-slate-900 text-white py-16 md:py-24 border-b-4 border-red-600">
+                                <div class="max-w-4xl mx-auto px-4 text-center">
+                                    <div class="inline-flex items-center gap-2 bg-red-600/20 text-red-200 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest mb-6 border border-red-500/30">
+                                        Independent Decision Portal
+                                    </div>
+                                    <h1 class="text-4xl md:text-5xl font-extrabold mb-5 leading-tight">${data.hero.title}</h1>
+                                    <p class="text-lg md:text-xl text-slate-300 mb-10 max-w-2xl mx-auto">${data.hero.subtitle}</p>
+                                    <div class="relative max-w-2xl mx-auto">
+                                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none"><i data-lucide="search" class="text-slate-400 w-5 h-5"></i></div>
+                                        <input id="searchInput" type="text" class="block w-full pl-12 pr-4 py-4 border-transparent rounded-xl leading-5 bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/50 sm:text-lg shadow-2xl transition-shadow" placeholder="${data.hero.searchPlaceholder}" autocomplete="off">
+                                        <div id="searchResults" class="absolute top-full left-0 w-full mt-2 bg-white rounded-xl shadow-2xl border border-slate-200 hidden z-50 text-left overflow-hidden"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="max-w-7xl mx-auto px-4 py-12 space-y-12">
+                                <section class="mb-16">
+                                    <h2 class="section-header">Kendaraan Terpopuler</h2>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                                        ${vehiclesHTML}
+                                    </div>
+                                </section>
+                                <div class="bg-slate-100 rounded-2xl p-6 md:p-8 border border-slate-200">
+                                    ${directoriesHTML}
+                                </div>
+                            </div>
+                        </main>
+                        ${FooterComponent.render()}
+                    `;
+                },
+                initEvents: () => {
+                    const input = document.getElementById('searchInput');
+                    const resultsContainer = document.getElementById('searchResults');
+                    if (!input || !resultsContainer) return;
+                    let currentIndex = -1;
+                    let currentResults = [];
+                    const renderDropdown = (results) => {
+                        if (results.length === 0) {
+                            resultsContainer.innerHTML = '<div class="p-4 text-slate-500 text-sm font-medium">Kendaraan tidak ditemukan. Coba kata kunci lain.</div>';
+                            resultsContainer.classList.remove('hidden');
+                            return;
+                        }
+                        resultsContainer.innerHTML = '<ul class="py-2">' + results.map((r, i) => `
+                            <li>
+                                <a href="#vehicles/${r.slug}" class="search-item block px-4 py-3 hover:bg-blue-50 transition-colors cursor-pointer border-b border-slate-50 last:border-0" data-index="${i}">
+                                    <div class="text-xs font-semibold text-red-600 uppercase">${r.brand}</div>
+                                    <div class="font-bold text-slate-800">${r.model} <span class="font-normal text-slate-500">${r.variant}</span></div>
+                                    <div class="text-xs text-slate-500 mt-1">${r.yearStart}-${r.yearEnd} &bull; ${r.engineCode}</div>
+                                </a>
+                            </li>
+                        `).join('') + '</ul>';
+                        resultsContainer.classList.remove('hidden');
+                    };
+                    const updateSelection = (items) => {
+                        items.forEach((item, index) => {
+                            if (index === currentIndex) item.classList.add('bg-blue-50');
+                            else item.classList.remove('bg-blue-50');
+                        });
+                    };
+                    input.addEventListener('input', (e) => {
+                        const query = e.target.value;
+                        currentIndex = -1;
+                        if (query.trim().length < 2) { resultsContainer.classList.add('hidden'); return; }
+                        currentResults = SearchService.searchVehicles(query);
+                        renderDropdown(currentResults);
+                    });
+                    input.addEventListener('keydown', (e) => {
+                        if (resultsContainer.classList.contains('hidden')) return;
+                        const items = resultsContainer.querySelectorAll('.search-item');
+                        if (items.length === 0) return;
+                        if (e.key === 'ArrowDown') { e.preventDefault(); currentIndex = (currentIndex + 1) % items.length; updateSelection(items); }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); currentIndex = (currentIndex - 1 + items.length) % items.length; updateSelection(items); }
+                        else if (e.key === 'Enter') { e.preventDefault(); if (currentIndex >= 0 && currentIndex < items.length) items[currentIndex].click(); else if (currentResults.length > 0) items[0].click(); resultsContainer.classList.add('hidden'); }
+                    });
+                    document.addEventListener('click', (e) => {
+                        if (!input.contains(e.target) && !resultsContainer.contains(e.target)) resultsContainer.classList.add('hidden');
+                    });
+                }
+            };
+        })(HomepageService, SearchService, NavbarComponent, FooterComponent);
+
+        // ==========================
+        // renderers/directory.view.js
+        // ==========================
+        const DirectoryView = ((DirectoryService, NavbarComponent, FooterComponent) => {
+            return {
+                render: (routePrefix, paramValue) => {
+                    const data = DirectoryService.getDirectoryData(routePrefix, paramValue);
+                    if (!data) return `${NavbarComponent.render()}<div class="max-w-7xl mx-auto px-4 py-20 text-center"><h1 class="text-2xl font-bold">Kategori Tidak Ditemukan</h1><a href="#home" class="text-blue-600 mt-4 inline-block">Kembali ke Beranda</a></div>${FooterComponent.render()}`;
+
+                    const vehiclesGridHTML = data.vehicles.map(v => `
+                        <a href="#vehicles/${v.slug}" class="directory-vehicle-card group block bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden hover:shadow-md hover:border-blue-400 transition-all" data-search-string="${v.brand.toLowerCase()} ${v.model.toLowerCase()} ${v.engineCode.toLowerCase()}">
+                            <div class="p-5">
+                                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">${v.brand}</span>
+                                <h3 class="font-bold text-slate-800 mt-1 mb-2">${v.model}</h3>
+                                <div class="text-sm text-slate-600 flex flex-col gap-1">
+                                    <span class="flex items-center gap-1"><i data-lucide="calendar" class="w-4 h-4 text-slate-400"></i> ${v.yearStart} - ${v.yearEnd}</span>
+                                    <span class="flex items-center gap-1"><i data-lucide="cpu" class="w-4 h-4 text-slate-400"></i> ${v.engineCode}</span>
+                                </div>
+                            </div>
+                        </a>
+                    `).join('');
+
+                    return `
+                        ${NavbarComponent.render()}
+                        <main class="bg-slate-50 pb-12 min-h-screen">
+                            <div class="bg-white border-b border-slate-200">
+                                <div class="max-w-7xl mx-auto px-4 py-3 text-sm text-slate-500 flex items-center gap-2">
+                                    <a href="#home" class="hover:text-blue-600"><i data-lucide="home" class="w-4 h-4"></i></a> 
+                                    <span class="text-slate-300">/</span> <span>${data.directoryTitle}</span> <span class="text-slate-300">/</span> 
+                                    <span class="text-slate-800 font-medium">${data.categoryValue}</span>
+                                </div>
+                            </div>
+                            <div class="max-w-7xl mx-auto px-4 py-8">
+                                <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+                                    <div>
+                                        <div class="text-sm font-bold text-blue-600 uppercase tracking-wider mb-1">${data.directoryTitle}</div>
+                                        <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900">Kumpulan Mobil ${data.categoryValue}</h1>
+                                        <p class="text-slate-500 font-medium mt-2">Menampilkan ${data.count} varian kendaraan untuk memandu keputusan perawatan Anda.</p>
+                                    </div>
+                                    <div class="w-full md:w-72">
+                                        <div class="relative">
+                                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><i data-lucide="filter" class="text-slate-400 w-4 h-4"></i></div>
+                                            <input id="directorySearchInput" type="text" class="block w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg bg-white text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Filter model dalam kategori ini...">
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="directoryVehiclesGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                    ${vehiclesGridHTML}
+                                </div>
+                                <div id="directoryNoResults" class="hidden text-center py-12 text-slate-500 bg-white border border-slate-200 rounded-lg"><p class="font-medium">Kendaraan tidak ditemukan berdasarkan filter Anda.</p></div>
+                            </div>
+                        </main>
+                        ${FooterComponent.render()}
+                    `;
+                },
+                initEvents: () => {
+                    const searchInput = document.getElementById('directorySearchInput');
+                    const gridCards = document.querySelectorAll('.directory-vehicle-card');
+                    const noResults = document.getElementById('directoryNoResults');
+
+                    if (!searchInput || gridCards.length === 0) return;
+
+                    searchInput.addEventListener('input', (e) => {
+                        const query = e.target.value.toLowerCase().trim();
+                        let visibleCount = 0;
+
+                        gridCards.forEach(card => {
+                            const searchStr = card.getAttribute('data-search-string') || '';
+                            if (searchStr.includes(query)) {
+                                card.classList.remove('hidden');
+                                visibleCount++;
+                            } else {
+                                card.classList.add('hidden');
+                            }
+                        });
+
+                        if (visibleCount === 0) {
+                            noResults.classList.remove('hidden');
+                        } else {
+                            noResults.classList.add('hidden');
+                        }
+                    });
+                }
+            };
+        })(DirectoryService, NavbarComponent, FooterComponent);
+
+        // ==========================
+        // renderers/vehicle.view.js
+        // ==========================
+        const VehicleView = ((VehicleService, NavbarComponent, FooterComponent, CardComponent) => {
+            return {
+                render: (slug) => {
+                    const data = VehicleService.getVehicleData(slug); 
+                    if (!data) return `${NavbarComponent.render()}<div class="p-20 text-center"><h1 class="font-bold text-xl mb-4">Kendaraan Tidak Ditemukan</h1><a href="#home" class="text-white bg-blue-600 px-4 py-2 rounded">Kembali ke Beranda</a></div>${FooterComponent.render()}`;
+
+                    const v = data.core;
+                    const e = v.engine || {};
+                    const dEngine = data.decisionEngine;
+                    
+                    return `
+                        ${NavbarComponent.render()}
+                        <main class="bg-slate-50 pb-12 min-h-screen">
+                            <!-- Breadcrumbs SEO -->
+                            <div class="bg-white border-b border-slate-200">
+                                <div class="max-w-7xl mx-auto px-4 py-3 text-sm text-slate-500 flex flex-wrap gap-2 items-center">
+                                    <a href="#home" class="hover:text-blue-600"><i data-lucide="home" class="w-4 h-4"></i></a> 
+                                    <span class="text-slate-300">/</span> <a href="#brands/${encodeURIComponent(v.brand.toLowerCase())}" class="hover:text-blue-600">${v.brand}</a>
+                                    <span class="text-slate-300">/</span> <a href="#types/${encodeURIComponent(v.bodyType.toLowerCase())}" class="hover:text-blue-600">${v.bodyType}</a>
+                                    <span class="text-slate-300">/</span> <span class="text-slate-800 font-bold">${v.model} ${v.variant}</span>
+                                </div>
+                            </div>
+                            
+                            <div class="max-w-7xl mx-auto px-4 py-8 space-y-8">
+                                <!-- Executive Summary Box (SEO Pillar) -->
+                                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:p-10 border-t-4 border-t-blue-700 relative overflow-hidden">
+                                    <div class="relative z-10 flex flex-col md:flex-row gap-8 items-start">
+                                        <div class="flex-grow">
+                                            <div class="flex flex-wrap gap-2 mb-3">
+                                                <span class="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded border border-blue-200 tracking-wide">${v.brand}</span>
+                                                <span class="bg-slate-100 text-slate-600 text-xs font-bold px-2.5 py-1 rounded border border-slate-200 tracking-wide">${v.segment}</span>
+                                                <span class="bg-red-50 text-red-700 text-xs font-bold px-2.5 py-1 rounded border border-red-200 tracking-wide">${v.engineCode}</span>
+                                            </div>
+                                            <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-4 tracking-tight leading-tight">Panduan Lengkap Spesifikasi & Rekomendasi Oli ${v.brand} ${v.model} ${v.variant}</h1>
+                                            <p class="text-slate-700 text-lg leading-relaxed border-l-4 border-blue-500 pl-5">
+                                                ${dEngine.summary}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                                    <!-- Left Column: Specs & Factuals -->
+                                    <div class="lg:col-span-5 space-y-8">
+                                        
+                                        <!-- Spesifikasi Absolut -->
+                                        <section class="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+                                            <h2 class="text-xl font-bold text-slate-800 border-b border-slate-200 pb-4 mb-5 flex items-center gap-2">
+                                                <i data-lucide="file-text" class="w-5 h-5 text-blue-600"></i> Data Spesifikasi Primer
+                                            </h2>
+                                            <table class="spec-table mb-0">
+                                                <tbody>
+                                                    <tr><th>Sandi Mesin</th><td class="font-bold text-slate-800"><a href="#engines/${encodeURIComponent(v.engineCode.toLowerCase())}" class="hover:text-blue-600 hover:underline">${v.engineCode}</a></td></tr>
+                                                    <tr><th>Aspirasi / Sistem</th><td class="text-slate-700">${v.aspiration} &middot; ${e.timingSystem || 'N/A'}</td></tr>
+                                                    <tr><th>Volume Silinder</th><td class="text-slate-700">${v.displacement} cc (${v.cylinders} Cyl)</td></tr>
+                                                    <tr><th>Kapasitas Oli Total</th><td class="font-extrabold text-blue-700 text-lg">${v.oilCapacity} Liter</td></tr>
+                                                    <tr><th>Viskositas Pabrik</th><td class="font-extrabold text-red-600 text-lg"><a href="#oil-grades/${encodeURIComponent(v.oilGrade.toLowerCase())}" class="hover:text-red-700 hover:underline">${v.oilGrade}</a></td></tr>
+                                                    <tr><th>Standar Minimum</th><td class="font-medium text-slate-800">${v.apiSpec}</td></tr>
+                                                    <tr><th>Estimasi Biaya Servis</th><td class="font-bold text-green-700">${dEngine.costEstimate}</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </section>
+
+                                        <!-- Buyer Persona & Facts -->
+                                        <section class="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+                                            <h2 class="text-xl font-bold text-slate-800 border-b border-slate-200 pb-4 mb-5 flex items-center gap-2">
+                                                <i data-lucide="scale" class="w-5 h-5 text-blue-600"></i> Analisis Objektif Karakteristik
+                                            </h2>
+                                            <div class="space-y-6">
+                                                ${v.strengths && v.strengths.length > 0 ? `
+                                                <div>
+                                                    <h3 class="font-bold text-green-700 flex items-center gap-1.5 mb-2"><i data-lucide="check-circle-2" class="w-4 h-4"></i> Keunggulan Teknis</h3>
+                                                    <ul class="list-disc pl-5 text-sm text-slate-600 space-y-1.5">${v.strengths.map(s => `<li>${s}</li>`).join('')}</ul>
+                                                </div>` : ''}
+                                                
+                                                ${e.knownIssues && e.knownIssues.length > 0 ? `
+                                                <div class="pt-5 border-t border-slate-100">
+                                                    <h3 class="font-bold text-red-700 flex items-center gap-1.5 mb-2"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Isu Mesin Bawaan (Known Issues)</h3>
+                                                    <ul class="list-disc pl-5 text-sm text-slate-600 space-y-1.5">${e.knownIssues.map(i => `<li>${i}</li>`).join('')}</ul>
+                                                </div>` : ''}
+
+                                                ${v.recommendedFor && v.recommendedFor.length > 0 ? `
+                                                <div class="pt-5 border-t border-slate-100 bg-slate-50 p-4 rounded-xl">
+                                                    <h3 class="font-bold text-slate-800 flex items-center gap-1.5 mb-2"><i data-lucide="users" class="w-4 h-4 text-blue-600"></i> Sangat Direkomendasikan Untuk:</h3>
+                                                    <ul class="list-none text-sm font-medium text-slate-700 space-y-1.5">${v.recommendedFor.map(r => `<li class="flex items-center gap-2"><i data-lucide="arrow-right" class="w-3 h-3 text-blue-400"></i> ${r}</li>`).join('')}</ul>
+                                                </div>` : ''}
+                                            </div>
+                                        </section>
+                                        
+                                        <!-- FAQ Schema Section -->
+                                        <section class="bg-white p-6 md:p-8 rounded-2xl border border-slate-200 shadow-sm">
+                                            <h2 class="text-xl font-bold text-slate-800 border-b border-slate-200 pb-4 mb-5 flex items-center gap-2">
+                                                <i data-lucide="help-circle" class="w-5 h-5 text-blue-600"></i> Pertanyaan Umum (FAQ)
+                                            </h2>
+                                            <div class="space-y-4">
+                                                ${dEngine.faqs.map(f => `
+                                                    <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                                        <h3 class="font-bold text-slate-900 text-sm mb-1">${f.q}</h3>
+                                                        <p class="text-sm text-slate-600 leading-relaxed">${f.a}</p>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </section>
+
+                                    </div>
+                                    
+                                    <!-- Right Column: Decision Cards & Affiliates -->
+                                    <div class="lg:col-span-7">
+                                        <section>
+                                            <h2 class="text-2xl font-extrabold text-slate-900 mb-2 flex items-center gap-2">
+                                                <i data-lucide="check-square" class="w-6 h-6 text-green-600"></i> Keputusan Pembelian (Decision Matrix)
+                                            </h2>
+                                            <p class="text-slate-500 mb-6 font-medium">Algoritma kami telah memilah produk terbaik berdasarkan kompatibilitas blok mesin <strong>${v.engineCode}</strong> dan performa *value-for-money*.</p>
+                                            
+                                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                                                <!-- Best Premium Card -->
+                                                ${CardComponent.renderDecision(dEngine.bestPremium, "Best Premium Upgrade", "star", "bg-purple-600", "purple")}
+                                                
+                                                <!-- Best Budget Card -->
+                                                ${CardComponent.renderDecision(dEngine.bestBudget, "Best Budget / Value", "trending-down", "bg-teal-600", "teal")}
+                                                
+                                                <!-- Best OEM Card (Full Width) -->
+                                                <div class="sm:col-span-2">
+                                                    ${CardComponent.renderDecision(dEngine.bestOem, "Official Factory Standard (OEM)", "shield-check", "bg-blue-600", "blue")}
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="bg-blue-50 border border-blue-200 text-blue-800 p-5 rounded-2xl text-sm mt-8 flex flex-col sm:flex-row gap-4 shadow-sm items-start">
+                                                <i data-lucide="info" class="w-6 h-6 flex-shrink-0 text-blue-600"></i>
+                                                <div>
+                                                    <strong class="block mb-1 text-base">Bagaimana rekomendasi ini dipilih?</strong> 
+                                                    Skor keputusan dihitung murni secara objektif dengan membandingkan Base Oil Group (Sintetik/Mineral), kecocokan viskositas <strong>${v.oilGrade}</strong>, pemenuhan standar <strong>${v.apiSpec}</strong>, dan rasio perlindungan komponen terhadap harga beli.
+                                                </div>
+                                            </div>
+                                        </section>
+                                    </div>
+                                </div>
+                            </div>
+                        </main>
+                        ${FooterComponent.render()}
+                    `;
+                }
+            };
+        })(VehicleService, NavbarComponent, FooterComponent, CardComponent);
+
+        // ==========================
+        // router.js
+        // ==========================
+        const AppRouter = ((HomeView, VehicleView, DirectoryView, DatabaseResolver) => {
+            const rootElement = document.getElementById('app');
+
+            const handleRouteChange = () => {
+                const hash = window.location.hash.substring(1) || 'home';
+                const [routePrefix, ...params] = hash.split('/');
+                const paramValue = params.join('/'); 
+                
+                const validDirectories = Object.keys(DatabaseResolver.getDirectoryMap());
+
+                if (routePrefix === 'home') {
+                    rootElement.innerHTML = HomeView.render();
+                    HomeView.initEvents(); 
+                } else if (routePrefix === 'vehicles' && paramValue) {
+                    rootElement.innerHTML = VehicleView.render(paramValue);
+                } else if (validDirectories.includes(routePrefix) && paramValue) {
+                    rootElement.innerHTML = DirectoryView.render(routePrefix, paramValue);
+                    DirectoryView.initEvents();
+                } else {
+                    rootElement.innerHTML = HomeView.render();
+                    HomeView.initEvents();
+                }
+
+                lucide.createIcons();
+                window.scrollTo(0, 0);
+            };
+
+            return {
+                init: () => window.addEventListener('hashchange', handleRouteChange),
+                triggerInitialRoute: () => handleRouteChange()
+            };
+        })(HomeView, VehicleView, DirectoryView, DatabaseResolver);
+
+        // ==========================
+        // app.js
+        // ==========================
+        const Application = ((AppRouter) => {
+            return {
+                start: () => {
+                    window.addEventListener('DOMContentLoaded', () => {
+                        AppRouter.init();
+                        AppRouter.triggerInitialRoute();
+                    });
+                }
+            };
+        })(AppRouter);
+
+        // ==========================
+        // main.js
+        // ==========================
+        Application.start();
+
+    </script>
+</body>
+</html>
