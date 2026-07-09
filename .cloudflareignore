@@ -1,0 +1,34 @@
+# Git
+.git/
+.gitignore
+
+# VS Code
+.vscode/
+
+# Wrangler
+.wrangler/
+
+# Node
+node_modules/
+
+# Development scripts
+scripts/
+
+# Documentation
+docs/
+README.md
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+
+# Temporary
+tmp/
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
