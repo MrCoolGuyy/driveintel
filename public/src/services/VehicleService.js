@@ -1,5 +1,6 @@
 import { DatabaseResolver } from "./DatabaseResolver.js";
 import { RecommendationEngine } from "../engines/RecommendationEngine.js";
+import { RecommendationService } from "./RecommendationService.js";
 import { SEOEngine } from "../engines/SEOEngine.js";
 
 export const VehicleService = (() => {
@@ -10,10 +11,10 @@ export const VehicleService = (() => {
 
         if (!rawVehicle) return null;
 
-        const decisions = RecommendationEngine.categorizeDecisions(
-            rawVehicle.mappedProducts,
-            rawVehicle.brand
-        );
+        const decisions =
+            RecommendationService.recommend(
+            rawVehicle
+         );
 
         const summary =
             SEOEngine.generateExecutiveSummary(rawVehicle);

@@ -1,5 +1,23 @@
 export const CompatibilityEngine = (() => {
 
+    const API_GASOLINE = {
+        SJ: 1,
+        SL: 2,
+        SM: 3,
+        SN: 4,
+        SP: 5
+    };
+
+    const API_DIESEL = {
+        CF: 1,
+        CF4: 2,
+        CG4: 3,
+        CH4: 4,
+        CI4: 5,
+        CJ4: 6,
+        CK4: 7
+    };
+
     function normalizeOilGrade(text) {
 
         if (!text) return [];
@@ -10,14 +28,28 @@ export const CompatibilityEngine = (() => {
 
     }
 
-    function apiLevel(api) {
+    function normalizeAPI(api) {
 
         if (!api) return "";
 
         return api
-            .replace("API","")
+            .replace("API", "")
+            .replace(/-/g, "")
             .trim()
-            .toUpperCase();
+            .toUpperCase()
+            .split("/")[0];
+
+    }
+
+    function apiLevel(api, fuel) {
+
+        const key = normalizeAPI(api);
+
+        if (fuel === "Diesel") {
+            return API_DIESEL[key] ?? 0;
+        }
+
+        return API_GASOLINE[key] ?? 0;
 
     }
 
@@ -33,17 +65,26 @@ export const CompatibilityEngine = (() => {
 
     function checkAPI(vehicle, product) {
 
-        return apiLevel(product.api) >= apiLevel(vehicle.apiSpec);
+        return (
+            apiLevel(product.api, vehicle.fuel) >=
+            apiLevel(vehicle.apiSpec, vehicle.fuel)
+        );
 
     }
 
     function evaluate(vehicle, product) {
 
+        const viscosity = checkViscosity(vehicle, product);
+
+        const api = checkAPI(vehicle, product);
+
         return {
 
-            viscosity: checkViscosity(vehicle,product),
+            compatible: viscosity && api,
 
-            api: checkAPI(vehicle,product)
+            viscosity,
+
+            api
 
         };
 

@@ -2,7 +2,7 @@ import { CompatibilityEngine } from "./CompatibilityEngine.js";
 
 export const ScoringEngine = (() => {
 
-    function score(vehicle, product) {
+    function calculateScore(vehicle, product) {
 
         const compatibility = CompatibilityEngine.evaluate(vehicle, product);
 
@@ -25,6 +25,11 @@ export const ScoringEngine = (() => {
         score += product.valueScore * 0.25;
         score += product.availabilityScore * 0.15;
 
+        if (product.brand === vehicle.brand) {
+            score += 15;
+            reasons.push("OEM resmi pabrikan");
+        }
+        
         if (product.counterfeitRisk === "Sangat Rendah") {
             score += 10;
             reasons.push("Risiko pemalsuan sangat rendah");
@@ -37,6 +42,15 @@ export const ScoringEngine = (() => {
 
         reasons.push("Lulus seluruh spesifikasi dasar");
 
+        if (vehicle.aspiration === "Turbo" &&product.group.includes("IV")) {
+            score += 8;
+            reasons.push("Ideal untuk mesin turbo");
+        }
+
+        if (product.baseOil.includes("Mineral")) {
+            score -= 8;
+        }
+
         return {
             score,
             reasons
@@ -45,7 +59,7 @@ export const ScoringEngine = (() => {
     }
 
     return {
-        score
+        calculateScore
     };
 
 })();
