@@ -114,53 +114,7 @@ content="https://driveintel.mrcoolguy.workers.dev/og-image.png">
         import { NavbarComponent } from "./src/components/NavbarComponent.js";
         import { FooterComponent } from './src/components/FooterComponent.js';
         import { CardComponent } from "./src/components/CardComponent.js";
-
-        // ==========================
-        // database/constants.js
-        // ==========================
-        const DatabaseConstants = (() => ({ DIRECTORY_MAP }))();
-
-        // ==========================
-        // database/engines.js
-        // ==========================
-        const DatabaseEngines = (() => ({ ENGINES }))();
-
-        // ==========================
-        // database/products.js
-        // ==========================
-        const DatabaseProducts = (() => ({ PRODUCTS }))();
-
-        // ==========================
-        // database/vehicles.js
-        // ==========================
-        const DatabaseVehicles = (() => ({ VEHICLES }))();
-
-        // ==========================
-        // database/resolver.js
-        // ==========================
-        const DatabaseResolver = ((Vehicles, Engines, Products, Constants) => {
-            return {
-                getAllVehicles: () => Vehicles,
-                getEngineDetails: (code) => Engines[code] || null,
-                getProductDetails: (id) => Products[id] || null,
-                getVehicleBySlug: (slug) => {
-                    const v = Vehicles.find(v => v.slug === slug);
-                    if (!v) return null;
-                    return {
-                        ...v,
-                        engine: Engines[v.engineCode] || {},
-                        mappedProducts: v.products.map(pId => Products[pId]).filter(Boolean)
-                    };
-                },
-                getDirectoryMap: () => Constants.DIRECTORY_MAP,
-                getUniqueValues: (field) => [...new Set(Vehicles.map(v => v[field]).filter(Boolean))].sort(),
-                getVehiclesByField: (field, value) => {
-                    const normalized = decodeURIComponent(value).toLowerCase();
-                    return Vehicles.filter(v => v[field] && v[field].toString().toLowerCase() === normalized);
-                },
-                getRelatedVehicles: (type, excludeSlug) => Vehicles.filter(v => v.bodyType === type && v.slug !== excludeSlug).slice(0, 4)
-            };
-        })(DatabaseVehicles.VEHICLES, DatabaseEngines.ENGINES, DatabaseProducts.PRODUCTS, DatabaseConstants);
+        import { DatabaseResolver } from "./src/services/DatabaseResolver.js";
 
         // ==========================
         // engines/search.engine.js
