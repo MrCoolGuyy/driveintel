@@ -117,6 +117,7 @@ content="https://driveintel.mrcoolguy.workers.dev/og-image.png">
         import { DatabaseResolver } from "./src/services/DatabaseResolver.js";
         import { SearchEngine } from "./src/engines/SearchEngine.js";
         import { RecommendationEngine } from "./src/engines/RecommendationEngine.js";
+        import { SearchService } from "./src/services/SearchService.js";
 
         // ==========================
         // engines/seo.engine.js
@@ -149,24 +150,6 @@ content="https://driveintel.mrcoolguy.workers.dev/og-image.png">
                 }
             };
         })();
-
-        // ==========================
-        // services/search.service.js
-        // ==========================
-        const SearchService = ((Resolver, SearchEngine) => {
-            return {
-                searchVehicles: (query) => {
-                    if (!query || query.trim().length < 2) return [];
-                    const vehicles = Resolver.getAllVehicles();
-                    const results = vehicles.map(v => {
-                        const targetStr = `${v.brand} ${v.model} ${v.variant} ${v.engineCode}`;
-                        const score = SearchEngine.evaluateSearchScore(query, targetStr);
-                        return { ...v, score };
-                    });
-                    return results.filter(v => v.score > 0).sort((a, b) => b.score - a.score).slice(0, 8); 
-                }
-            };
-        })(DatabaseResolver, SearchEngine);
 
         // ==========================
         // services/homepage.service.js
