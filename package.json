@@ -1,0 +1,32 @@
+{
+  "name": "driveintel",
+  "version": "1.0.0",
+  "description": "DriveIntel - Automotive Decision Platform",
+  "type": "module",
+  "scripts": {
+    "sync-images": "node scripts/sync-images.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrCoolGuyy/driveintel.git"
+  },
+  "keywords": [
+    "automotive",
+    "engine-oil",
+    "vehicles",
+    "driveintel"
+  ],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/MrCoolGuyy/driveintel/issues"
+  },
+  "homepage": "https://github.com/MrCoolGuyy/driveintel#readme",
+  "dependencies": {
+    "axios": "^1.18.1",
+    "p-limit": "^7.3.0",
+    "playwright": "^1.61.1",
+    "sharp": "^0.35.3"
+  }
+}
