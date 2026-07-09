@@ -9,6 +9,8 @@ export const DatabaseResolver = ((Vehicles, Engines, Products, Constants) => {
 
         getAllVehicles: () => Vehicles,
 
+        getAllProducts: () => Object.values(Products),
+
         getEngineDetails: (code) => Engines[code] || null,
 
         getProductDetails: (id) => Products[id] || null,
