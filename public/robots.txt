@@ -1,0 +1,5 @@
+User-agent: *
+
+Allow: /
+
+Sitemap: https://driveintel.mrcoolguy.workers.dev/sitemap.xml
