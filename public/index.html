@@ -115,51 +115,8 @@ content="https://driveintel.mrcoolguy.workers.dev/og-image.png">
         import { FooterComponent } from './src/components/FooterComponent.js';
         import { CardComponent } from "./src/components/CardComponent.js";
         import { DatabaseResolver } from "./src/services/DatabaseResolver.js";
-
-        // ==========================
-        // engines/search.engine.js
-        // ==========================
-        const SearchEngine = (() => {
-            return {
-                evaluateSearchScore: (query, target) => {
-                    const q = query.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    const t = target.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    if (t.includes(q)) return 100; 
-                    let qIdx = 0, tIdx = 0;
-                    while (qIdx < q.length && tIdx < t.length) { if (q[qIdx] === t[tIdx]) qIdx++; tIdx++; }
-                    if (qIdx === q.length) return 50; 
-                    return 0; 
-                }
-            };
-        })();
-
-        // ==========================
-        // engines/recommendation.engine.js
-        // ==========================
-        const RecommendationEngine = (() => {
-            return {
-                categorizeDecisions: (mappedProducts, vehicleBrand) => {
-                    let decisions = { bestOem: null, bestPremium: null, bestBudget: null, bestPerformance: null };
-                    let pool = [...mappedProducts];
-                    
-                    decisions.bestOem = pool.find(p => p.brand.toLowerCase() === vehicleBrand.toLowerCase() || p.productName.includes("Genuine") || p.productName.includes("E-Pro")) || pool[0];
-                    decisions.bestPremium = pool.slice().sort((a,b) => b.performanceScore - a.performanceScore).find(p => p !== decisions.bestOem && p.price >= 600000);
-                    decisions.bestBudget = pool.slice().sort((a,b) => b.valueScore - a.valueScore).find(p => p !== decisions.bestOem && p !== decisions.bestPremium && p.price <= 450000);
-                    decisions.bestPerformance = pool.slice().sort((a,b) => b.performanceScore - a.performanceScore).find(p => p !== decisions.bestOem && p !== decisions.bestPremium && p !== decisions.bestBudget);
-
-                    if(!decisions.bestPremium) decisions.bestPremium = pool[1] || pool[0];
-                    if(!decisions.bestBudget) decisions.bestBudget = pool[0];
-                    if(!decisions.bestPerformance) decisions.bestPerformance = decisions.bestPremium;
-
-                    return decisions;
-                },
-                estimateMaintenanceCost: (oilCapacity, bestBudgetPrice, bestPremiumPrice) => {
-                    const minCost = bestBudgetPrice + 75000 + 50000;
-                    const maxCost = bestPremiumPrice + 120000 + 100000;
-                    return `Rp ${(minCost/1000).toFixed(0)}.000 - Rp ${(maxCost/1000).toFixed(0)}.000`;
-                }
-            };
-        })();
+        import { SearchEngine } from "./src/engines/SearchEngine.js";
+        import { RecommendationEngine } from "./src/engines/RecommendationEngine.js";
 
         // ==========================
         // engines/seo.engine.js
