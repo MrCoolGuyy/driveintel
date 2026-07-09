@@ -4,8 +4,8 @@
   "description": "DriveIntel - Automotive Decision Platform",
   "type": "module",
   "scripts": {
-    "sync-images": "node scripts/sync-images.mjs",
-    "build": "node scripts/build.mjs"
+    "normalize": "node scripts/normalize-vehicles.mjs",
+    "validate": "node scripts/validate-database.mjs"
   },
   "repository": {
     "type": "git",
