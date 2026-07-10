@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "normalize": "node scripts/normalize-vehicles.mjs",
-    "validate": "node scripts/validate-database.mjs"
+    "validate": "node scripts/validate-database.mjs",
+    "audit": "node scripts/audit-recommendation.mjs"
   },
   "repository": {
     "type": "git",

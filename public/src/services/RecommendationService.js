@@ -1,6 +1,7 @@
 import { DatabaseResolver } from "./DatabaseResolver.js";
 import { CompatibilityEngine } from "../engines/CompatibilityEngine.js";
 import { RankingEngine } from "../engines/RankingEngine.js";
+import { CategorizationEngine } from "../engines/CategorizationEngine.js";
 
 export const RecommendationService = (() => {
 
@@ -21,41 +22,19 @@ export const RecommendationService = (() => {
                 compatibleProducts
             );
 
-        const bestOem =
-            ranked.find(r =>
-                r.product.brand === vehicle.brand
-            )?.product ?? ranked[0]?.product;
-
-        const bestPremium =
-            ranked[0]?.product;
-
-        const bestBudget =
-            [...ranked]
-                .sort((a, b) =>
-                    b.product.valueScore -
-                    a.product.valueScore
-                )[0]?.product;
-
-        const bestPerformance =
-            [...ranked]
-                .sort((a, b) =>
-                    b.product.performanceScore -
-                    a.product.performanceScore
-                )[0]?.product;
+        const categories =
+    CategorizationEngine.categorize(
+        vehicle,
+        ranked
+    );
 
         return {
 
             ranked,
 
-            bestOem,
+        ...categories
 
-            bestPremium,
-
-            bestBudget,
-
-            bestPerformance
-
-        };
+};
 
     }
 

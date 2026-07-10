@@ -53,9 +53,14 @@ export const CompatibilityEngine = (() => {
 
     }
 
+    // =====================================
+    // BASIC CHECK
+    // =====================================
+
     function checkViscosity(vehicle, product) {
 
-        const allowed = normalizeOilGrade(vehicle.oilGrade);
+        const allowed =
+            normalizeOilGrade(vehicle.oilGrade);
 
         return allowed.includes(
             product.viscosity.toUpperCase()
@@ -66,33 +71,153 @@ export const CompatibilityEngine = (() => {
     function checkAPI(vehicle, product) {
 
         return (
-            apiLevel(product.api, vehicle.fuel) >=
-            apiLevel(vehicle.apiSpec, vehicle.fuel)
+
+            apiLevel(
+                product.api,
+                vehicle.fuel
+            )
+
+            >=
+
+            apiLevel(
+                vehicle.apiSpec,
+                vehicle.fuel
+            )
+
         );
 
     }
 
+    function checkFuel(vehicle, product) {
+
+        if (!product.suitableFuel)
+            return true;
+
+        const fuel = vehicle.fuel === "Bensin"
+            ? "Gasoline"
+            : vehicle.fuel;
+
+        return product.suitableFuel.includes(fuel);
+
+    }
+
+    function checkEngine(vehicle, product) {
+
+        if (!product.suitableEngine)
+            return true;
+
+        return product.suitableEngine.includes(
+            vehicle.aspiration
+        );
+
+    }
+
+    function checkApproval(vehicle, product) {
+
+        if (!product.approval)
+            return true;
+
+        const api =
+            normalizeAPI(vehicle.apiSpec);
+
+        return product.approval.some(a =>
+            a.toUpperCase().includes(api)
+        );
+
+    }
+
+    // =====================================
+    // MAIN EVALUATION
+    // =====================================
+
     function evaluate(vehicle, product) {
 
-        const viscosity = checkViscosity(vehicle, product);
+        const viscosity =
+            checkViscosity(vehicle, product);
 
-        const api = checkAPI(vehicle, product);
+        const api =
+            checkAPI(vehicle, product);
+
+        const fuel =
+            checkFuel(vehicle, product);
+
+        const engine =
+            checkEngine(vehicle, product);
+
+        const approval =
+            checkApproval(vehicle, product);
+
+        const score =
+
+            Number(viscosity)
+
+            +
+
+            Number(api)
+
+            +
+
+            Number(fuel)
+
+            +
+
+            Number(engine)
+
+            +
+
+            Number(approval);
 
         return {
 
-            compatible: viscosity && api,
+            compatible:
+
+                api &&
+                fuel,
 
             viscosity,
 
-            api
+            api,
+
+            fuel,
+
+            engine,
+
+            approval,
+
+            score
 
         };
 
     }
 
+    // =====================================
+    // PENALTY
+    // =====================================
+
+    function viscosityPenalty(vehicle, product) {
+
+        const allowed =
+            normalizeOilGrade(vehicle.oilGrade);
+
+        if (
+            allowed.includes(
+                product.viscosity.toUpperCase()
+            )
+        ) {
+
+            return 0;
+
+        }
+
+        return -15;
+
+    }
+
     return {
 
-        evaluate
+        evaluate,
+
+        viscosityPenalty
 
     };
 
